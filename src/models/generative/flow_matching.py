@@ -145,7 +145,7 @@ class FlowMatching(L.LightningModule):
         return optimizer
 
     @torch.no_grad()
-    def sample(self, n_samples: int = 1, batch_size: int = 4096, device=None, **kwargs):
+    def sample(self, n_samples: int = 1, batch_size: int = 1024, device=None, **kwargs):
 
         if device is None:
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -178,7 +178,7 @@ class FlowMatching(L.LightningModule):
                 lambda t, x: ode_func(t, x, y_batch),
                 x_0,
                 torch.tensor([0.0, 1.0], device=device),
-                method='dopri5', # better than simple euler integration
+                method='dopri5',
                 atol=1e-2,
                 rtol=1e-2
             )
@@ -212,7 +212,7 @@ def get_trained(**kwargs):
         trainer.fit(model=model, train_dataloaders=trl, val_dataloaders=tel)
     else:
         # Update this to your specific checkpoint path later
-        checkpoint_path = path / Path('flowmatch_logs/version_0/checkpoints/last.ckpt')
+        checkpoint_path = path / Path('flowmatch_logs/version_1/checkpoints/epoch=19-step=18760.ckpt')
         if not checkpoint_path.exists():
             print("Checkpoint not found. Please train the model first by passing --train.")
             return None
@@ -235,26 +235,22 @@ if __name__ == "__main__":
     if m is not None:
         m.eval()
         with torch.no_grad():
-            # Taking 5 samples per class (10 classes * 5 = 50 total) to test ODE integration
-            s, y = m.sample(n_samples=5, steps=50)
+            s, y = m.sample(n_samples=1000, steps=50)
             print("Sample shape:", s.shape, "Labels shape:", y.shape)
         
         # Standard classification checks, matching your pipeline
-        from noah.src.train_cnnclassifier import get_trained_model as get_c
+        from src.models.classification.cnn import get_trained as get_c
         c = get_c()
         t = L.Trainer()
         predictions = t.predict(c, dataloaders=DataLoader(TensorDataset(s, y), batch_size=128))
-        breakpoint()
 
-        probslist, labelslist = zip(*predictions)
+        probslist, labelslist, _ = zip(*predictions)
         y_pred = torch.cat(probslist)
         y_pred2= torch.cat(labelslist)
-        breakpoint()
 
-        from noah.src.metrics.prediction_accuracy import compute_acc_cm
+        from src.metrics.prediction_accuracy import compute_metrics as compute_acc_cm
         acc, cm = compute_acc_cm(y.argmax(dim=-1).cpu(), y_pred.cpu())
         acc2, cm2 = compute_acc_cm(y.argmax(dim=-1).cpu(), y_pred2.cpu())
-        breakpoint()
 
         print(f"Accuracy: {acc}")
         print(f"Accuracy2:{acc2}")

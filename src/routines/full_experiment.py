@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 import torch
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import ConcatDataset, TensorDataset, DataLoader
 
 import lightning as L
 
@@ -30,11 +30,14 @@ def full_experiment(model_cls: Type[L.LightningModule], **kwargs):
     eval_trainer = L.Trainer()
     cnn = get_c(**kwargs)
     predictions = eval_trainer.predict(cnn, dataloaders=tel)
+
     pred_probs, pred_labels, pred_features = zip(*predictions)
     pred_probs = torch.cat(pred_probs)
     pred_labels = torch.cat(pred_labels)
+
     acc, cm = compute_acc_cm(tel.dataset.tensors[1].argmax(dim=1).cpu(), pred_probs.cpu())
     conf_entropy, div_entropy = compute_entropy_metrics(tel.dataset.tensors[1].argmax(dim=1).cpu(), pred_probs.cpu())
+
     current_data = (trl, tel)
 
     print(f"Baseline accuracy: {acc}")
@@ -52,7 +55,7 @@ def full_experiment(model_cls: Type[L.LightningModule], **kwargs):
     for i in range(kwargs.get('collapse_epochs', 10)):
         trainer = L.Trainer(max_epochs=kwargs.get('max_epochs', 10))
         model = model_cls()
-        acc, cm, conf_entropy, div_entropy, current_data = experiment_step(trainer=trainer, model=model, current_data=current_data, epoch_idx=i, **kwargs)
+        acc, cm, conf_entropy, div_entropy, current_data = experiment_step(exp_type=kwargs.get('experiment_type', 'full'), trainer=trainer, model=model, current_data=current_data, epoch_idx=i, **kwargs)
         results_dict['accuracies'].append(acc)
         results_dict["cms"].append(cm)
         results_dict["conf_entropies"].append(conf_entropy)
@@ -143,15 +146,36 @@ def save_sample_grid(samples, labels, output_path, title="Generated Samples"):
     plt.close()
 
 
-def experiment_step(trainer: L.Trainer, model: L.LightningModule, current_data: Tuple[DataLoader, DataLoader], **kwargs):
+def experiment_step(exp_type, trainer: L.Trainer, model: L.LightningModule, current_data: Tuple[DataLoader, DataLoader], **kwargs):
     # train new model on the current data
     trainer.fit(model=model, train_dataloaders=current_data[0], val_dataloaders=current_data[1])
 
     # generate new data from trained model
-    generated_data_x, generated_data_y = model.sample(60, **kwargs) # for full experiment we need to replace the full 60000 images from MNIST
-    generated_test_x, generated_test_y = model.sample(10, **kwargs) # test set
-    gds = TensorDataset(generated_data_x, generated_data_y)
-    gl = tds_to_dl(gds)
+    # for next training and eval here
+    if exp_type == 'full':
+        generated_data_x, generated_data_y = model.sample(6000, **kwargs) # for full experiment we need to replace the full 60000 images
+        gds = TensorDataset(generated_data_x, generated_data_y)
+        gl = tds_to_dl(gds)
+    elif exp_type == 'replace':
+        gen_x, gen_y = model.sample(int(6000 * kwargs.get('replace-percentage', 0.2)))
+        current_data_x = current_data[0].dataset.tensors[0]
+        current_data_y = current_data[0].dataset.tensors[1]
+        indices = torch.randperm(current_data_x.shape[0], device=current_data_x.device)
+        current_data_x[indices] = gen_x.to(device=current_data_x.device)
+        current_data_y[indices] = gen_y.to(device=current_data_y.device)
+        gds = TensorDataset(current_data_x, current_data_y)
+        gl = tds_to_dl(gds)
+
+    elif exp_type == 'add':
+        gen_x, gen_y = model.sample(int(6000 * kwargs.get('add-percentage', 0.2)))
+        gds = TensorDataset(gen_x, gen_y)
+        cds = ConcatDataset([current_data[0].dataset, gds])
+        gl = DataLoader(cds, batch_size=64, shuffle=True)
+
+        
+    generated_test_x, generated_test_y = model.sample(1000, **kwargs) # test set also same size as original data
+    #gds = TensorDataset(generated_data_x, generated_data_y)
+    #gl = tds_to_dl(gds)
     gts = TensorDataset(generated_test_x, generated_test_y)
     gtl = tds_to_dl(gts)
 
@@ -165,14 +189,14 @@ def experiment_step(trainer: L.Trainer, model: L.LightningModule, current_data: 
 
     # metrics on generated data
     eval_trainer = L.Trainer(logger=False)
-    cnn = get_c()
+    cnn = get_c(**kwargs)
     predictions = eval_trainer.predict(cnn, dataloaders=gtl)
-    pred_probs, pred_labels, pred_features = zip(*predictions)
+    pred_probs, pred_labels, _ = zip(*predictions)
     pred_probs = torch.cat(pred_probs)
     pred_labels = torch.cat(pred_labels)
 
     acc, cm = compute_acc_cm(generated_test_y.argmax(dim=1).cpu(), pred_probs.cpu())
-    conf_entropy, div_entropy = compute_entropy_metrics(gtl.dataset.tensors[1].argmax(dim=1).cpu(), pred_probs.cpu())
+    conf_entropy, div_entropy = compute_entropy_metrics(generated_test_y.argmax(dim=1).cpu(), pred_probs.cpu())
     current_data = (gl, gtl)
     return acc, cm, conf_entropy, div_entropy, current_data
 
@@ -184,6 +208,7 @@ if __name__ == "__main__":
     parser.add_argument("--collapse_epochs", action="store", type=int, default=2, help="How many collapse epochs the experiment will run for.")
     parser.add_argument("--ode_steps", action="store", type=int, default=5, help="How many ODE steps to use for Flow matching sampling.")
     parser.add_argument("--fashion", action="store_true", default=False, help="Use the FashionMNIST dataset instead of the original MNIST.")
+    parser.add_argument("--experiment", action="store", default='full', help="Which experiment to run.", choices=['full', 'replace', 'add'])
     args = parser.parse_args()
     args_dict = vars(args)
 
