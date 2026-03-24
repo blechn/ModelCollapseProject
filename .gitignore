@@ -1,0 +1,14 @@
+__init__.py
+
+*.png
+__pycache__/
+*.pyc
+*.pyo
+
+MNIST/
+
+*logs*
+
+*.csv
+
+results/
