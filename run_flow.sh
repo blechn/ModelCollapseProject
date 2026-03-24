@@ -44,7 +44,7 @@ for MODEL in "${MODELS[@]}"; do
             --modelcls "$MODEL" \
             --experiment "$EXP" \
             --collapse_epochs 10 \
-            --max_epochs 10 \
+            --max_epochs 20 \
             --add_percentage 0.2 \
             --replace_percentage 0.2 \
             $FASHION_FLAG 2>&1 | tee "$LOG_FILE"
