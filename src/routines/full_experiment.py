@@ -243,7 +243,7 @@ def experiment_step(
     )
 
     # metrics on generated data
-    eval_trainer = L.Trainer(logger=False)
+    eval_trainer = L.Trainer(logger=False, enable_progress_bar=sys.stdout.isatty())
     cnn = get_c(**kwargs)
     predictions = eval_trainer.predict(cnn, dataloaders=gtl)
     pred_probs, pred_labels, _ = zip(*predictions)

@@ -1,4 +1,5 @@
 import os
+import sys
 from pathlib import Path
 from argparse import ArgumentParser
 
@@ -323,7 +324,7 @@ class ConvCondRealNVPModule(nn.Module):
         # 2. Decode in chunks to prevent OOM
         with torch.no_grad():
             for i in trange(
-                0, len(z_full), batch_size, desc="Generating new data... ", leave=True
+                0, len(z_full), batch_size, desc="Generating new data... ", leave=True, disable=not sys.stdout.isatty()
             ):
                 z_batch = z_full[i : i + batch_size]
                 y_batch = y_full[i : i + batch_size]
