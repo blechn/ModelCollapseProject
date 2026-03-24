@@ -14,7 +14,6 @@ from tqdm import trange
 
 from src.data.mnist import get_mnist_loaders
 
-
 # I wrote this so the RealNVP can handle images better, because in the exercises it could barely handle 8x8 images,
 # but MNIST is 28x28.
 # I use a checkerboard split first (use every other pixel) for halving the tensors for the st-net, which itself is modified so that is not
@@ -153,12 +152,14 @@ class Preprocessing(nn.Module):
         self.alpha = alpha
 
     def forward(self, x, y=None):
-        noise = torch.rand_like(x) / 255.0 # the image was rescaled from [0, 255] to [0, 1] so we do the same transformation with the noise
+        noise = (
+            torch.rand_like(x) / 255.0
+        )  # the image was rescaled from [0, 255] to [0, 1] so we do the same transformation with the noise
         x = x + noise
         # to prevent the log from becoming -inf, we want to rescale the values of x to [0+alpha, 1-alpha]
         # for this we do:
         #       (((x - x.min) / x.max) * (1 - 2*alpha)) + alpha
-        x = (((x - x.min()) / x.max()) * (1 - 2*self.alpha)) + self.alpha
+        x = (((x - x.min()) / x.max()) * (1 - 2 * self.alpha)) + self.alpha
         z = torch.log(x) - torch.log(
             1 - x
         )  # logit(x) = log(x/(1-x)) = log(x) - log(1-x)
@@ -177,7 +178,7 @@ class Preprocessing(nn.Module):
         x = torch.sigmoid(z)
 
         # inverse scaling (scale back to [0, 1])
-        x = ((x - x.min()) / x.max()) # neglect the alphas since they are very small
+        x = (x - x.min()) / x.max()  # neglect the alphas since they are very small
 
         return x
 
@@ -346,8 +347,8 @@ class RealNVP(L.LightningModule):
         super().__init__()
         if model is None:
             model = ConvCondRealNVPModule(hidden_size=512, n_layers=12)
-            model.to(device=kwargs.get('device', torch.device('cuda:0')))
-            #model = torch.compile(model, fullgraph=True, mode='reduce-overhead')
+            model.to(device=kwargs.get("device", torch.device("cuda:0")))
+            # model = torch.compile(model, fullgraph=True, mode='reduce-overhead')
         self.model = model
 
     def loss_fn(self, x, y):
@@ -361,43 +362,70 @@ class RealNVP(L.LightningModule):
         return loss
 
     def configure_optimizers(self, **kwargs):
-        optimizer = optim.AdamW(self.parameters(), lr=kwargs.get('lr', 1e-3))
+        optimizer = optim.AdamW(self.parameters(), lr=kwargs.get("lr", 1e-3))
         return optimizer
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
         loss = self.loss_fn(x, y)
-        self.log('val_loss', loss)
+        self.log("val_loss", loss)
 
     def sample(self, n: int = 1, **kwargs):
-        return self.model.to(kwargs.get('device', torch.device('cuda'))).sample(n_samples=n, batch_size=kwargs.get('batch_size', 64), device=kwargs.get('device', torch.device('cuda:0')))
+        return self.model.to(kwargs.get("device", torch.device("cuda"))).sample(
+            n_samples=n,
+            batch_size=kwargs.get("batch_size", 64),
+            device=kwargs.get("device", torch.device("cuda:0")),
+        )
 
 
 def get_trained(**kwargs):
     L.pytorch.utilities.disable_possible_user_warnings()
-    path = kwargs.get('path', Path(os.getcwd()+'/trained_models'))
-    if kwargs.get('train', False):
+    path = kwargs.get("path", Path(os.getcwd() + "/trained_models"))
+    if kwargs.get("train", False):
         print("Training new classifier...")
         model = RealNVP()
 
-        trainer = L.Trainer(logger=TensorBoardLogger(path, 'realnvp_logs'), max_epochs=kwargs.get('max_epochs', 20), accelerator='cuda')
+        trainer = L.Trainer(
+            logger=TensorBoardLogger(path, "realnvp_logs"),
+            max_epochs=kwargs.get("max_epochs", 20),
+            accelerator="cuda",
+        )
 
         trl, tel = get_mnist_loaders(**kwargs)
 
         trainer.fit(model=model, train_dataloaders=trl, val_dataloaders=tel)
     else:
-        model = RealNVP.load_from_checkpoint(path/Path('realnvp_logs/version_1/checkpoints/epoch=1-step=1876.ckpt')) # hardcoded, good model
+        model = RealNVP.load_from_checkpoint(
+            path / Path("realnvp_logs/version_1/checkpoints/epoch=1-step=1876.ckpt")
+        )  # hardcoded, good model
 
     print("Model loaded.")
-    
+
     return model
+
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--train", action="store_true", default=False, help="Whether to train a model or just load it from the latest checkpoint.")
-    parser.add_argument("--max_epochs", action="store", type=int, default=10, help="How many epochs to train the CNN.")
-    parser.add_argument("--fashion", action="store_true", default=False, help="Use the FashionMNIST dataset instead of the original MNIST.")
-    torch.set_float32_matmul_precision('high')
+    parser.add_argument(
+        "--train",
+        action="store_true",
+        default=False,
+        help="Whether to train a model or just load it from the latest checkpoint.",
+    )
+    parser.add_argument(
+        "--max_epochs",
+        action="store",
+        type=int,
+        default=10,
+        help="How many epochs to train the CNN.",
+    )
+    parser.add_argument(
+        "--fashion",
+        action="store_true",
+        default=False,
+        help="Use the FashionMNIST dataset instead of the original MNIST.",
+    )
+    torch.set_float32_matmul_precision("high")
     args = parser.parse_args()
     args_dict = vars(args)
 
@@ -406,17 +434,21 @@ if __name__ == "__main__":
     with torch.no_grad():
         s, y = m.sample(5000)
         print(s.shape, y.shape)
-    
+
     from src.models.classification.cnn import get_trained as get_c, CNNClassifier
+
     c = get_c()
     t = L.Trainer()
-    predictions = t.predict(c, dataloaders=DataLoader(TensorDataset(s, y), batch_size=128))
+    predictions = t.predict(
+        c, dataloaders=DataLoader(TensorDataset(s, y), batch_size=128)
+    )
 
     probslist, labelslist = zip(*predictions)
     y_pred = torch.cat(probslist)
-    y_pred2= torch.cat(labelslist)
+    y_pred2 = torch.cat(labelslist)
 
     from src.metrics.prediction_accuracy import compute_metrics
+
     acc, cm = compute_metrics(y.argmax(dim=-1).cpu(), y_pred.cpu())
     acc2, cm2 = compute_metrics(y.argmax(dim=-1).cpu(), y_pred2.cpu())
 
@@ -426,6 +458,7 @@ if __name__ == "__main__":
 
     import matplotlib.pyplot as plt
     import seaborn as sns
-    sns.heatmap(cm.cpu(), cmap='Blues', annot=True, fmt='d')
+
+    sns.heatmap(cm.cpu(), cmap="Blues", annot=True, fmt="d")
     plt.show()
     plt.close()

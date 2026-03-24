@@ -18,8 +18,8 @@ def download_mnist(path: Path | None = None, **kwargs):
     """
     if path is None:
         path = Path(os.getcwd())
-        
-    if kwargs.get('fashion', False):
+
+    if kwargs.get("fashion", False):
         train_mnist = FashionMNIST(root=path, train=True, download=True)
         test_mnist = FashionMNIST(root=path, train=False, download=True)
     else:
