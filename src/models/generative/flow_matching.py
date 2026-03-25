@@ -172,7 +172,12 @@ class FlowMatching(L.LightningModule):
             return self.model(x_t, t_batch, y_batch)
 
         for i in trange(
-            0, total_to_generate, batch_size, desc="Generating data", leave=True, disable=not sys.stdout.isatty()
+            0,
+            total_to_generate,
+            batch_size,
+            desc="Generating data",
+            leave=True,
+            disable=not sys.stdout.isatty(),
         ):
             y_batch = y_full[i : i + batch_size]
             current_batch_size = y_batch.shape[0]

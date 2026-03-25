@@ -57,7 +57,10 @@ def full_experiment(model_cls: Type[L.LightningModule], **kwargs):
     }
 
     for i in range(kwargs.get("collapse_epochs", 10)):
-        trainer = L.Trainer(max_epochs=kwargs.get("max_epochs", 10), enable_progress_bar=sys.stdout.isatty())
+        trainer = L.Trainer(
+            max_epochs=kwargs.get("max_epochs", 10),
+            enable_progress_bar=sys.stdout.isatty(),
+        )
         model = model_cls()
         acc, cm, conf_entropy, div_entropy, current_data = experiment_step(
             exp_type=kwargs.get("experiment", "full"),
@@ -78,10 +81,12 @@ def full_experiment(model_cls: Type[L.LightningModule], **kwargs):
         )
 
     # save results
-    save_experiment_results(results_dict=results_dict, model_name=model_cls.__name__)
+    save_experiment_results(
+        results_dict=results_dict, model_name=model_cls.__name__, **kwargs
+    )
 
 
-def save_experiment_results(results_dict, model_name, output_dir="results"):
+def save_experiment_results(results_dict, model_name, output_dir="results", **kwargs):
     out_path = Path(output_dir) / model_name
     out_path.mkdir(parents=True, exist_ok=True)
 
@@ -124,8 +129,10 @@ def save_experiment_results(results_dict, model_name, output_dir="results"):
     fig.tight_layout()
     fig.legend(loc="upper right", bbox_to_anchor=(1, 1), bbox_transform=ax1.transAxes)
 
-    plt.savefig(out_path / "metrics_evolution.png")
-    print(f"Saved metrics plot to {out_path}/metrics_evolution.png")
+    plt.savefig(out_path / f"metrics_evolution_{kwargs.get('experiment', 'full')}.png")
+    print(
+        f"Saved metrics plot to {out_path}/metrics_evolution_{kwargs.get('experiment', 'full')}.png"
+    )
 
     # 3. Save Individual Confusion Matrices
     for i, cm in enumerate(results_dict["cms"]):
@@ -134,13 +141,15 @@ def save_experiment_results(results_dict, model_name, output_dir="results"):
         plt.title(f"Confusion Matrix - Epoch {i} ({model_name})")
         plt.xlabel("Predicted")
         plt.ylabel("True")
-        plt.savefig(out_path / f"cm_epoch_{i}.png")
+        plt.savefig(out_path / f"cm_epoch_{i}_{kwargs.get('experiment', 'full')}.png")
         plt.close()
 
     # 4. Save Raw Data to CSV
     df = pd.DataFrame(results_dict)
     df.to_csv(out_path / "results_summary.csv", index_label="epoch")
-    print(f"Saved numerical results to {out_path}/results_summary.csv")
+    print(
+        f"Saved numerical results to {out_path}/results_summary_{kwargs.get('experiment', 'full')}.csv"
+    )
     return out_path
 
 
@@ -233,7 +242,7 @@ def experiment_step(
     grid_path = (
         Path("results")
         / Path(model.__class__.__name__)
-        / f"samples_epoch_{kwargs.get('epoch_idx')}.png"
+        / f"samples_epoch_{kwargs.get('epoch_idx')}_experiment_{exp_type}.png"
     )
     save_sample_grid(
         samples=generated_test_x,
