@@ -16,12 +16,9 @@ from lightning.pytorch.loggers import TensorBoardLogger
 
 from tqdm import trange
 
-# Assuming the same data loader structure you have
 from src.data.mnist import get_mnist_loaders
 
 
-# --- 1. Time Embedding ---
-# Flow Matching models need to know "when" they are in the generation process (t in [0, 1]).
 class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
         super().__init__()
@@ -37,8 +34,6 @@ class SinusoidalPosEmb(nn.Module):
         return emb
 
 
-# --- 2. Conditional ResNet Block ---
-# A standard ResNet block that injects both the time embedding and the class condition.
 class ConditionalResBlock(nn.Module):
     def __init__(self, channels, emb_dim):
         super().__init__()
@@ -46,13 +41,11 @@ class ConditionalResBlock(nn.Module):
         self.conv2 = nn.Conv2d(channels, channels, 3, padding=1)
         self.act = nn.SiLU()
 
-        # Linear layer to project the combined time+class embedding to the channel dimension
         self.emb_proj = nn.Linear(emb_dim, channels)
 
     def forward(self, x, emb):
         h = self.conv1(self.act(x))
 
-        # Inject embeddings (broadcast across spatial dimensions)
         emb_out = self.emb_proj(self.act(emb))[:, :, None, None]
         h = h + emb_out
 
@@ -60,8 +53,6 @@ class ConditionalResBlock(nn.Module):
         return x + h
 
 
-# --- 3. The Vector Field Network ---
-# This replaces the complex invertible layers. It just takes (x_t, t, y) and outputs the velocity vector.
 class VectorFieldNet(nn.Module):
     def __init__(self, in_channels=1, hidden_size=64, num_blocks=4, condition_size=10):
         super().__init__()
@@ -75,7 +66,6 @@ class VectorFieldNet(nn.Module):
             nn.Linear(time_emb_dim * 2, time_emb_dim),
         )
 
-        # Project the one-hot labels
         self.label_proj = nn.Linear(condition_size, time_emb_dim)
 
         self.init_conv = nn.Conv2d(in_channels, hidden_size, 3, padding=1)
@@ -87,12 +77,10 @@ class VectorFieldNet(nn.Module):
         self.final_conv = nn.Conv2d(hidden_size, in_channels, 3, padding=1)
 
     def forward(self, x_t, t, y):
-        # 1. Embed time and labels, then combine them
         t_emb = self.time_mlp(t)
         y_emb = self.label_proj(y.float())
         emb = t_emb + y_emb
 
-        # 2. Pass through CNN
         h = self.init_conv(x_t)
         for block in self.blocks:
             h = block(h, emb)
@@ -101,18 +89,15 @@ class VectorFieldNet(nn.Module):
         return out
 
 
-# --- 4. Flow Matching Lightning Module ---
 class FlowMatching(L.LightningModule):
-    def __init__(self, model: VectorFieldNet = None, **kwargs):
+    def __init__(self, model: VectorFieldNet | None = None, **kwargs):
         super().__init__()
         if model is None:
-            # 1 channel for MNIST, 64 hidden channels, 6 ResNet blocks
             model = VectorFieldNet(in_channels=1, hidden_size=64, num_blocks=6)
         self.model = model
         self.save_hyperparameters(ignore=["model"])
 
     def loss_fn(self, x1, y):
-        # x1 is [0, 1]; scale to [-1, 1] for better symmetry with normal distribution
         x1 = x1 * 2.0 - 1.0
 
         B = x1.shape[0]
@@ -223,9 +208,8 @@ def get_trained(**kwargs):
 
         trainer.fit(model=model, train_dataloaders=trl, val_dataloaders=tel)
     else:
-        # Update this to your specific checkpoint path later
         checkpoint_path = path / Path(
-            "flowmatch_logs/version_1/checkpoints/epoch=19-step=18760.ckpt"
+            "flowmatch_logs/version_1/checkpoints/epoch=19-step=18760.ckpt" # hardcoded, small model
         )
         if not checkpoint_path.exists():
             print(

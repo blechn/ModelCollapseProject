@@ -303,15 +303,14 @@ class ConvCondRealNVPModule(nn.Module):
             z = layer.inverse(z, y.float())
         return z
 
-    def sample(self, n_samples: int = 1, batch_size: int = 64, device=None):
+    def sample(self, n_samples: int = 1, batch_size: int = 64, device=None): # I fiddled a lot with this function to make it work. Now it generates data in batches to prevent OOM, at the cost of being slower.
         if device is None:
             device = self.device
 
-        # 1. Generate all the latent vectors (z) and labels (y) first
         z_list = [
             self.base_dist.sample((n_samples,)) for _ in range(self.condition_size)
         ]
-        z_full = torch.vstack(z_list).to(device)
+        z_full = torch.vstack(z_list).to(device=device)
 
         y_full = (
             torch.nn.functional.one_hot(
@@ -321,7 +320,6 @@ class ConvCondRealNVPModule(nn.Module):
             .reshape((n_samples * self.condition_size, self.condition_size))
         ).float()
         decoded_samples = []
-        # 2. Decode in chunks to prevent OOM
         with torch.no_grad():
             for i in trange(
                 0,
