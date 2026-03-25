@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Define the models and the experiment modes
-MODELS=("realnvp" "flowmatching")
+MODELS=("realnvp" "flowmatching" "pixelcnn")
 EXPERIMENTS=("full" "replace" "add")
 
 USE_FASHION=false

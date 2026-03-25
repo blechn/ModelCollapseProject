@@ -33,59 +33,97 @@ class SinusoidalPosEmb(nn.Module):
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
         return emb
 
+class SelfAttention(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.mha = nn.MultiheadAttention(channels, num_heads=4, batch_first=True)
+        self.norm = nn.GroupNorm(8, channels)
+
+    def forward(self, x):
+        B, C, H, W = x.shape
+        h = self.norm(x).view(B, C, H * W).transpose(1, 2)
+        attn_out, _ = self.mha(h, h, h)
+        attn_out = attn_out.transpose(1, 2).view(B, C, H, W)
+        return x + attn_out
 
 class ConditionalResBlock(nn.Module):
-    def __init__(self, channels, emb_dim):
+    def __init__(self, in_channels, out_channels, emb_dim):
         super().__init__()
-        self.conv1 = nn.Conv2d(channels, channels, 3, padding=1)
-        self.conv2 = nn.Conv2d(channels, channels, 3, padding=1)
+        self.conv1 = nn.Conv2d(in_channels, out_channels, 3, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, 3, padding=1)
         self.act = nn.SiLU()
-
-        self.emb_proj = nn.Linear(emb_dim, channels)
+        self.emb_proj = nn.Linear(emb_dim, out_channels)
+        
+        if in_channels != out_channels:
+            self.shortcut = nn.Conv2d(in_channels, out_channels, 1)
+        else:
+            self.shortcut = nn.Identity()
 
     def forward(self, x, emb):
         h = self.conv1(self.act(x))
-
         emb_out = self.emb_proj(self.act(emb))[:, :, None, None]
         h = h + emb_out
-
         h = self.conv2(self.act(h))
-        return x + h
-
+        return self.shortcut(x) + h
 
 class VectorFieldNet(nn.Module):
-    def __init__(self, in_channels=1, hidden_size=64, num_blocks=4, condition_size=10):
+    def __init__(self, in_channels=1, hidden_size=64, condition_size=10):
         super().__init__()
         self.condition_size = condition_size
+        time_emb_dim = hidden_size * 4
 
-        time_emb_dim = hidden_size
         self.time_mlp = nn.Sequential(
-            SinusoidalPosEmb(time_emb_dim),
-            nn.Linear(time_emb_dim, time_emb_dim * 2),
+            SinusoidalPosEmb(hidden_size),
+            nn.Linear(hidden_size, time_emb_dim),
             nn.SiLU(),
-            nn.Linear(time_emb_dim * 2, time_emb_dim),
+            nn.Linear(time_emb_dim, time_emb_dim),
         )
-
         self.label_proj = nn.Linear(condition_size, time_emb_dim)
 
         self.init_conv = nn.Conv2d(in_channels, hidden_size, 3, padding=1)
+        
+        self.down1 = ConditionalResBlock(hidden_size, hidden_size, time_emb_dim)
+        self.pool1 = nn.Conv2d(hidden_size, hidden_size, 4, stride=2, padding=1) # 28x28 -> 14x14
+        
+        self.down2 = ConditionalResBlock(hidden_size, hidden_size * 2, time_emb_dim)
+        self.pool2 = nn.Conv2d(hidden_size * 2, hidden_size * 2, 4, stride=2, padding=1) # 14x14 -> 7x7
+        
+        self.down3 = ConditionalResBlock(hidden_size * 2, hidden_size * 2, time_emb_dim)
 
-        self.blocks = nn.ModuleList(
-            [ConditionalResBlock(hidden_size, time_emb_dim) for _ in range(num_blocks)]
-        )
+        self.mid1 = ConditionalResBlock(hidden_size * 2, hidden_size * 2, time_emb_dim)
+        self.attn = SelfAttention(hidden_size * 2)
+        self.mid2 = ConditionalResBlock(hidden_size * 2, hidden_size * 2, time_emb_dim)
+
+        self.up1 = nn.ConvTranspose2d(hidden_size * 2, hidden_size * 2, 4, stride=2, padding=1) # 7x7 -> 14x14
+        self.up_block1 = ConditionalResBlock(hidden_size * 4, hidden_size * 2, time_emb_dim)
+        
+        self.up2 = nn.ConvTranspose2d(hidden_size * 2, hidden_size, 4, stride=2, padding=1) # 14x14 -> 28x28
+        self.up_block2 = ConditionalResBlock(hidden_size * 2, hidden_size, time_emb_dim)
 
         self.final_conv = nn.Conv2d(hidden_size, in_channels, 3, padding=1)
 
     def forward(self, x_t, t, y):
-        t_emb = self.time_mlp(t)
-        y_emb = self.label_proj(y.float())
-        emb = t_emb + y_emb
+        emb = self.time_mlp(t) + self.label_proj(y.float())
 
-        h = self.init_conv(x_t)
-        for block in self.blocks:
-            h = block(h, emb)
-
-        out = self.final_conv(h)
+        h0 = self.init_conv(x_t)
+        
+        h1 = self.down1(h0, emb)
+        p1 = self.pool1(h1)
+        
+        h2 = self.down2(p1, emb)
+        p2 = self.pool2(h2)
+        
+        h3 = self.down3(p2, emb)
+        
+        m = self.mid2(self.attn(self.mid1(h3, emb)), emb)
+        
+        u1 = self.up1(m)
+        ub1 = self.up_block1(torch.cat([u1, h2], dim=1), emb)
+        
+        u2 = self.up2(ub1)
+        ub2 = self.up_block2(torch.cat([u2, h1], dim=1), emb)
+        
+        out = self.final_conv(ub2)
         return out
 
 
@@ -93,7 +131,7 @@ class FlowMatching(L.LightningModule):
     def __init__(self, model: VectorFieldNet | None = None, **kwargs):
         super().__init__()
         if model is None:
-            model = VectorFieldNet(in_channels=1, hidden_size=64, num_blocks=6)
+            model = VectorFieldNet(in_channels=1, hidden_size=64)
         self.model = model
         self.save_hyperparameters(ignore=["model"])
 
@@ -131,7 +169,7 @@ class FlowMatching(L.LightningModule):
         return optimizer
 
     @torch.no_grad()
-    def sample(self, n_samples: int = 1, batch_size: int = 1024, device=None, **kwargs):
+    def sample(self, n_samples: int = 1, batch_size: int = 512, device=None, **kwargs):
 
         if device is None:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

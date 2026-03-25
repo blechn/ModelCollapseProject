@@ -20,6 +20,7 @@ from src.metrics.entropy_metrics import compute_entropy_metrics
 from src.models.classification.cnn import get_trained as get_c
 from src.models.generative.realnvp import RealNVP
 from src.models.generative.flow_matching import FlowMatching
+from src.models.generative.pixelcnn import PixelCNN
 
 
 def full_experiment(model_cls: Type[L.LightningModule], **kwargs):
@@ -274,7 +275,7 @@ if __name__ == "__main__":
         "--modelcls",
         type=str,
         default="realnvp",
-        choices=["realnvp", "flowmatching"],
+        choices=["realnvp", "flowmatching", "pixelcnn"],
         help="Which generative model to use for experiments.",
     )
     parser.add_argument(
@@ -296,7 +297,7 @@ if __name__ == "__main__":
         action="store",
         type=int,
         default=5,
-        help="How many ODE steps to use for Flow matching sampling.",
+        help="DEPRECATED BECAUSE OF TORCHDIFFEQ USAGE. How many ODE steps to use for Flow matching sampling.",
     )
     parser.add_argument(
         "--fashion",
@@ -333,7 +334,11 @@ if __name__ == "__main__":
     torch.set_float32_matmul_precision("high")
     if args.modelcls == "realnvp":
         model_cls = RealNVP
-    else:
+    elif args.modelcls == "flowmatching":
         model_cls = FlowMatching
+    elif args.modelcls == "pixelcnn":
+        model_cls = PixelCNN
+    else:
+        raise TypeError(f"Unknown modelcls option: {args.modelcls}. Can't do the experiment with that!")
 
     full_experiment(model_cls=model_cls, device=device, **args_dict)
