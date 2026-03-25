@@ -209,7 +209,7 @@ def get_trained(**kwargs):
         trainer.fit(model=model, train_dataloaders=trl, val_dataloaders=tel)
     else:
         checkpoint_path = path / Path(
-            "flowmatch_logs/version_1/checkpoints/epoch=19-step=18760.ckpt" # hardcoded, small model
+            "flowmatch_logs/version_1/checkpoints/epoch=19-step=18760.ckpt"  # hardcoded, small model
         )
         if not checkpoint_path.exists():
             print(

@@ -303,7 +303,9 @@ class ConvCondRealNVPModule(nn.Module):
             z = layer.inverse(z, y.float())
         return z
 
-    def sample(self, n_samples: int = 1, batch_size: int = 64, device=None): # I fiddled a lot with this function to make it work. Now it generates data in batches to prevent OOM, at the cost of being slower.
+    def sample(
+        self, n_samples: int = 1, batch_size: int = 64, device=None
+    ):  # I fiddled a lot with this function to make it work. Now it generates data in batches to prevent OOM, at the cost of being slower.
         if device is None:
             device = self.device
 
