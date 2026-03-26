@@ -18,6 +18,6 @@ def compute_entropy_metrics(target_labels, pred_probs, num_classes=10):
 
     diversity_entropy = (
         -(probs * torch.log(probs + eps)).sum().item()
-    )  # shannon entropy for diversity
+    )
 
     return avg_predictive_entropy, diversity_entropy

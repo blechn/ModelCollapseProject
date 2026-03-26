@@ -327,7 +327,7 @@ class ConvCondRealNVPModule(nn.Module):
                 0,
                 len(z_full),
                 batch_size,
-                desc="Generating new data... ",
+                desc=f"Generating {n_samples} samples... ",
                 leave=True,
                 disable=not sys.stdout.isatty(),
             ):
@@ -369,6 +369,11 @@ class RealNVP(L.LightningModule):
 
     def configure_optimizers(self, **kwargs):
         optimizer = optim.AdamW(self.parameters(), lr=kwargs.get("lr", 1e-3))
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(
+            optimizer=optimizer,
+            T_max=self.trainer.max_epochs,
+            eta_min=1e-8,
+        )
         return optimizer
 
     def validation_step(self, batch, batch_idx):

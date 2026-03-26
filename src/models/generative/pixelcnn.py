@@ -30,7 +30,7 @@ class MaskedConv2d(nn.Conv2d):
         return super().forward(x)
 
 class PixelCNN(L.LightningModule):
-    def __init__(self, in_channels=1, hidden_size=64, num_layers=7, condition_size=10):
+    def __init__(self, in_channels=1, hidden_size=64, num_layers=7, condition_size=10, **kwargs):
         super().__init__()
         self.save_hyperparameters()
         self.condition_size = condition_size
@@ -71,8 +71,17 @@ class PixelCNN(L.LightningModule):
         self.log("train_loss", loss)
         return loss
 
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+        # Map [0, 1] float to [0, 255] long for CrossEntropy
+        target = (x * 255).long().squeeze(1) 
+        logits = self(x, y)
+        loss = F.cross_entropy(logits, target)
+        self.log("val_loss", loss)
+
+
     @torch.no_grad()
-    def sample(self, n_samples: int, device=None, batch_size=1024, **kwargs):
+    def sample(self, n_samples: int, device=None, batch_size=256, **kwargs):
         if device is None:
             device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
@@ -84,7 +93,7 @@ class PixelCNN(L.LightningModule):
         n_total = n_samples * 10
         samples_all = []
 
-        for i in trange(0, n_total, batch_size, desc="Generating samples...", leave=False, disable=not sys.stdout.isatty()):
+        for i in trange(0, n_total, batch_size, desc=f"Generating {n_samples*10} samples...", leave=False, disable=not sys.stdout.isatty()):
             curr_batch_size = min(batch_size, n_total - i)
             y = y_all[i : i + curr_batch_size]
             
@@ -138,14 +147,15 @@ if __name__ == "__main__":
 
     # 2. Sample
     with torch.no_grad():
-        print("Generating 6000 samples...")
-        s, y = m.sample(n_samples=600, batch_size=1024)
+        print("Generating 600 samples...")
+        s, y = m.sample(n_samples=60, batch_size=128)
         print(f"Sample shape: {s.shape}, Labels shape: {y.shape}")
 
     # 3. Evaluate using your existing CNN classifier pipeline
     try:
         from src.models.classification.cnn import get_trained as get_classifier
         from src.metrics.prediction_accuracy import compute_metrics
+        from src.metrics.entropy_metrics import compute_entropy_metrics
         
         print("Evaluating sample quality via classifier...")
         classifier = get_classifier()
@@ -154,9 +164,9 @@ if __name__ == "__main__":
         # Predict labels for the generated images
         pred_data = DataLoader(TensorDataset(s, y), batch_size=128)
         predictions = trainer.predict(classifier, dataloaders=pred_data)
-        
-        # Flatten predictions
-        y_pred_probs = torch.cat([p[0] for p in predictions])
+        probslist, labelslist, _ = zip(*predictions)
+
+        y_pred_probs = torch.cat(probslist)
         
         # Compute accuracy (how often the classifier agrees with what the model *tried* to generate)
         acc, cm = compute_metrics(y.argmax(dim=-1).cpu(), y_pred_probs.cpu())

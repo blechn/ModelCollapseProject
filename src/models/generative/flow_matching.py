@@ -198,7 +198,7 @@ class FlowMatching(L.LightningModule):
             0,
             total_to_generate,
             batch_size,
-            desc="Generating data",
+            desc=f"Generating {n_samples} samples...",
             leave=True,
             disable=not sys.stdout.isatty(),
         ):

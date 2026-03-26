@@ -30,7 +30,7 @@ def full_experiment(model_cls: Type[L.LightningModule], **kwargs):
 
     # compute metrics for the original data
     eval_trainer = L.Trainer(enable_progress_bar=sys.stdout.isatty())
-    cnn = get_c(**kwargs)
+    cnn = get_c()
     predictions = eval_trainer.predict(cnn, dataloaders=tel)
 
     pred_probs, pred_labels, pred_features = zip(*predictions)
@@ -43,6 +43,7 @@ def full_experiment(model_cls: Type[L.LightningModule], **kwargs):
     conf_entropy, div_entropy = compute_entropy_metrics(
         tel.dataset.tensors[1].argmax(dim=1).cpu(), pred_probs.cpu()
     )
+
 
     current_data = (trl, tel)
 
@@ -61,8 +62,10 @@ def full_experiment(model_cls: Type[L.LightningModule], **kwargs):
         trainer = L.Trainer(
             max_epochs=kwargs.get("max_epochs", 10),
             enable_progress_bar=sys.stdout.isatty(),
+            gradient_clip_val=1.0,
+            num_sanity_val_steps=0, # disable sanity check because the ActNorm layer in the RealNVP initializes on the first batch it sees
         )
-        model = model_cls()
+        model = model_cls(**kwargs)
         acc, cm, conf_entropy, div_entropy, current_data = experiment_step(
             exp_type=kwargs.get("experiment", "full"),
             trainer=trainer,
@@ -238,7 +241,7 @@ def experiment_step(
     # gds = TensorDataset(generated_data_x, generated_data_y)
     # gl = tds_to_dl(gds)
     gts = TensorDataset(generated_test_x, generated_test_y)
-    gtl = tds_to_dl(gts)
+    gtl = tds_to_dl(gts, shuffle=False)
 
     grid_path = (
         Path("results")
